@@ -1,8 +1,20 @@
 from math import exp
+from sre_parse import WHITESPACE
+from string import whitespace
+from turtle import mode
 from hypothesis.strategies import composite, builds, randoms, sampled_from
 import random
 
-from utils import Nonterminal, NonterminalCollection, Terminal, Expansion, Modes
+from utils import (
+    NONTERMINAL_FIRST_CHAR,
+    NONTERMINAL_REMAINING_CHARS,
+    CharacterCollector,
+    Nonterminal,
+    NonterminalCollection,
+    Terminal,
+    Expansion,
+    Modes,
+)
 
 
 def get_cfg_string(cfg_file_path: str) -> str:
@@ -35,60 +47,91 @@ def parse_cfg(
     nonterminals = NonterminalCollection()
     expansions = {}
 
-    for nonterminal_definition in cfg_string.split("\n\n"):
-        if nonterminal_definition == "":
-            continue
+    mode = Modes.FIND_DECLARATION
+    current_string = CharacterCollector()
+    for char in cfg_string:
+        match mode:
+            case Modes.FIND_DECLARATION:
+                match char:
+                    case whitespace if char in WHITESPACE:
+                        continue
+                    case char if char in NONTERMINAL_FIRST_CHAR:
+                        mode = Modes.GET_DECLARATION
+                        current_string.start()
+                        current_string.add_char(char)
+                    case _:
+                        raise ValueError(f"Invalid character: {char}")
+            case Modes.GET_DECLARATION:
+                match char:
+                    case char if char in NONTERMINAL_REMAINING_CHARS:
+                        current_string.add_char(char)
+                    case char if char in WHITESPACE or char == "|":
+                        nonterminal_string = current_string.get_str()
+                        nonterminals.add_nonterminal(
+                            Nonterminal(nonterminal_string, expansions)
+                        )
+                        expansion.add_part(nonterminals[nonterminal_string])  # type: ignore because we just added it
+                        mode = Modes.EXPANSION
+            case Modes.FIND_ASSIGNMENT:
+                match char:
+                    case whitespace if char in WHITESPACE:
+                        continue
+                    case ":":
+                        mode = Modes.GET_ASSIGNMENT
+                    case _:
+                        raise ValueError(f"Invalid character: {char}")
+            case Modes.GET_ASSIGNMENT:
+                match char:
+                    case "=":
+                        mode = Modes.EXPANSION
+                    case _:
+                        raise ValueError(f"Invalid character: {char}")
+            case Modes.EXPANSION:
+                expansion = Expansion()
+                # current_string = None
+                current_mode = Modes.NONE
+                for char in expansion_string:
+                    match current_mode:
+                        case Modes.NONE:
+                            match char:
+                                case "'":
+                                    current_mode = Modes.TERMINAL
+                                    # current_string = ""
+                                case "<":
+                                    current_mode = Modes.NONTERMINAL
+                                    # current_string = ""
+                                case " " | "\n" | "\t":
+                                    continue
+                                case _:
+                                    raise ValueError(f"Invalid character: {char}")
+                        case Modes.TERMINAL:
+                            match char:
+                                case "'":
+                                    expansion.add_part(Terminal(current_string))
+                                    current_mode = Modes.NONE
+                                    # current_string = None
+                                case "\\":
+                                    current_mode = Modes.BACKSLASH
+                                case _:
+                                    pass
+                                    # current_string += char  # type: ignore bc current_string should be str by NONE case
+                        case Modes.NONTERMINAL:
+                            match char:
+                                case ">":
+                                    nonterminals.add_nonterminal(
+                                        Nonterminal(current_string, expansions)
+                                    )
+                                    expansion.add_part(nonterminals[current_string])  # type: ignore because we just added it
+                                    current_mode = Modes.NONE
+                                    # current_string = None
+                                case _:
+                                    pass
+                                    # current_string += char  # type: ignore bc current_string should be str by NONE case
+                        case Modes.BACKSLASH:
+                            # current_string += eval(f"'\\{char}'")  # type: ignore bc current_string should be str by NONE case
+                            current_mode = Modes.TERMINAL
 
-        nonterminal_definition = nonterminal_definition.split(":=")
-        nonterminal_string = nonterminal_definition[0].strip()
-
-        if nonterminal_string not in nonterminals:
-            nonterminals.add_nonterminal(Nonterminal(nonterminal_string, expansions))
-
-        for expansion_string in nonterminal_definition[1].split("|"):
-            expansion = Expansion()
-            current_string = None
-            current_mode = Modes.NONE
-            for char in expansion_string:
-                match current_mode:
-                    case Modes.NONE:
-                        match char:
-                            case "'":
-                                current_mode = Modes.TERMINAL
-                                current_string = ""
-                            case "<":
-                                current_mode = Modes.NONTERMINAL
-                                current_string = ""
-                            case " " | "\n" | "\t":
-                                continue
-                            case _:
-                                raise ValueError(f"Invalid character: {char}")
-                    case Modes.TERMINAL:
-                        match char:
-                            case "'":
-                                expansion.add_part(Terminal(current_string))
-                                current_mode = Modes.NONE
-                                current_string = None
-                            case "\\":
-                                current_mode = Modes.BACKSLASH
-                            case _:
-                                current_string += char  # type: ignore bc current_string should be str by NONE case
-                    case Modes.NONTERMINAL:
-                        match char:
-                            case ">":
-                                nonterminals.add_nonterminal(
-                                    Nonterminal(current_string, expansions)
-                                )
-                                expansion.add_part(nonterminals[current_string])  # type: ignore because we just added it
-                                current_mode = Modes.NONE
-                                current_string = None
-                            case _:
-                                current_string += char  # type: ignore bc current_string should be str by NONE case
-                    case Modes.BACKSLASH:
-                        current_string += eval(f"'\\{char}'")  # type: ignore bc current_string should be str by NONE case
-                        current_mode = Modes.TERMINAL
-
-            nonterminals[nonterminal_string].add_expansion(expansion)
+                nonterminals[nonterminal_string].add_expansion(expansion)
 
     return nonterminals
 

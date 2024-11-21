@@ -1,4 +1,14 @@
 from enum import Enum
+from pickle import GET
+from sre_parse import WHITESPACE
+import string
+
+WHITESPACE = string.whitespace
+ALPHABET = string.ascii_letters
+DIGITS = string.digits
+
+NONTERMINAL_FIRST_CHAR = ALPHABET
+NONTERMINAL_REMAINING_CHARS = ALPHABET + DIGITS + "_"
 
 
 class Nonterminal:
@@ -114,8 +124,34 @@ class NonterminalCollection:
         return len(self._nonterminals)
 
 
-class Modes(Enum):
+class _Expansion(Enum):
     NONE = 0
     TERMINAL = 1
     NONTERMINAL = 2
     BACKSLASH = 3
+
+
+class Modes(Enum):
+    FIND_DECLARATION = 0
+    GET_DECLARATION = 1
+    FIND_ASSIGNMENT = 2
+    GET_ASSIGNMENT = 3
+    EXPANSION = _Expansion
+
+
+class CharacterCollector:
+    def __init__(self) -> None:
+        self.str = None
+
+    def start(self):
+        if self.str is not None:
+            raise ValueError("CharacterCollector already started")
+        self.str = ""
+
+    def add_char(self, char):
+        self.str += char
+
+    def get_str(self):
+        string = self.str
+        self.str = None
+        return string
